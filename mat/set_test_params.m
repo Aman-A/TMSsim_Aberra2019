@@ -2,6 +2,9 @@
 % set neuron model parameters in nrn/params/test/defineParams.hoc
 % Stimulation waveform parameters (tvec.txt, Evec.txt)
 mat_dir = addPaths; 
+nrn_dir = [mat_dir '/../nrn']; 
+run_params_fold = fullfile(nrn_dir,'params','test'); 
+%% Write waveform to params/test/ (tvec.txt and Evec.txt)
 dt = 0.005; 
 tstop = 1;
 waveform.mode = 1; % 1. monophasic ,2. biphasic,3. half sine MagProX100  
@@ -10,7 +13,8 @@ waveform.del = dt;
 waveform.dur = 0.03; 
 plot_wave = 1; 
 [tvec,Evec] = TMSwave(dt,tstop,waveform,plot_wave); 
-%% Write Er.txt
+writeVectorBin(run_params_fold,tvec,Evec); % write tvec, Evec to params/test
+%% Write Er.txt (after running interpEfieldsAll.m to generate nrn_efields/ data
 % E-field parameters (for load_potentials = 1)
 cell_model.cell_id = 1; % L23_PC_cADpyr229_1
 cell_model.nrn_model_ver = 'maxH';
