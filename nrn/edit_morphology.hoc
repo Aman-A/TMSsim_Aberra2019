@@ -1,0 +1,758 @@
+// Skip axon[0] convert every section to myelin + node
+INL_ratio = 100
+INL_ratio_term = 70 // INL ratio for terminations
+nodeL = 1
+// min_myelinL = 20 // 20 minimum myelinated section length 
+// min_myelinD = 0.2 // 0.2 µm (Hildebrand 1993) (max4 used 0.05 µm, should be same as 0.2 b/c of scaling)
+min_PMAS = 50 // minimum premyelin axon segment (PMAS), i.e. axon hillock + initial segment length
+myelinL_error = 0.1 // allowed error in myelin length
+nodeL_error = 0.1 // allowed error in node length
+// max_myelin_order = 0 // max_order - max_myelin_order is max branch order to myelinate. 0 myelinates all branches (same convention as prune_ax)
+
+objref myelinCnts
+
+{load_file("myelin_biophysics.hoc")} // load after section list objects instantiated
+proc myelinateAxon() { localobj axon_secList	
+	axon_secList = $o1	
+	add_myelin(axon_secList)
+	//scale_diam2(1/g_ratio,Myelin_secList) // use constant g_ratio
+	scale_diam3(Myelin_secList) // use diam dependent g ratio using 3° polynomial fit to Micheva 2016 data
+	//scale_diam4(Node_secList) // use diam dependent g ratio to scale down node diameters
+	geom_nseg(40,axonal) // assign nseg to each section (2 per 40 um)	
+	myelin_biophys()
+	forsec axonal cell.all.append() // add to cell sectionlist
+	forsec iseg_secList cell.axonal.append() // add initial segment to cell.axonal()
+	forsec axonal cell.axonal.append() // add rest of new myelinated axon to cell.axonal()	
+	//forsec iseg_secList axonal.append() // add here to avoid re-adding to cell.all
+}
+
+// input axon section list, e.g. cell.axonal
+proc add_myelin() { local cnt, myelinL, nn, include_PMAS_myelin, myelinL_sec, max_order localobj secx, secy, secz, length, diamvec, axon_secList, parent_SecList, children_SecList, child_SecRef
+	//pt3dconst(1)
+	axon_secList = $o1
+	iseg_secList = new SectionList()
+	Myelin_secList = new SectionList()
+	Node_secList = new SectionList()	
+	Unmyelin_secList = new SectionList()
+	axonal = new SectionList()
+	forsec "axon[0]" iseg_secList.append()
+	axon_secList.remove(iseg_secList) // remove axon[0] from list
+	forsec iseg_secList {
+		if (L >= (min_PMAS + min_myelinL) ) { // add myelin/node before 1st bifurcation
+			numMyelin=1 // account for first myelin and nodal sections
+			numNode=1
+			include_PMAS_myelin = 1
+		} else { // don't add myelin/node before 1st bifurcation
+			numMyelin=0 // start count at 0 for rest of arbor			
+			numNode=0
+			include_PMAS_myelin = 0
+		}
+		//axonal.append() // don't add iseg to axonal seclist until adding axonal to all
+	}	
+	numAxonal = 0	
+	numUnmyelin = 0
+	objref myelinCnts
+	myelinCnts = new Vector() // number of internodal sections to replace each existing axonal section
+	// calculate number of new myelin, nodal, and unmyelinated sections to create
+	max_order = get_max_order(axon_secList) // get maximum branch order of original axon
+	forsec axon_secList {
+		numAxonal += 1
+		if (type_xtra(1)==2||type_xtra(1)==5){
+			myelinL=diam(0)*INL_ratio_term			
+		} else {
+			myelinL = diam(0)*INL_ratio
+		}			
+		// 3 conditions for myelination: 1) above min diam 2) above min length 3) below max branch order
+		// must be larger than minimum diameter for myelinated fibers 		 
+		if (diam(0) >= min_myelinD) {
+			// must be below maximum branch order, e.g. if max_order = 10, max_myelin_order = 1 => myelinate up to order = 9
+			// unless section is in main axon, which is always myelinated (if diam is below min_myelinD)
+			if (check_in_secList(main_ax_list) || order_xtra < max_order + 1 - max_myelin_order) {
+				numMyelin_sec = int(L/(myelinL + nodeL))			
+				if (numMyelin_sec == 0){ // int rounds down to 0 if < 1, no myelin if L < min_myelinL + nodeL
+					numMyelin_sec = int(L/(min_myelinL + nodeL)) // if section is shorter than internodal length calculated by INL_ratio*diam, use minimum myelin length
+					//numMyelin_sec = 1 // if section is shorter than INL from INL_ratio*diam, make full section myelinated
+				}
+			} else { // section is above max order and not part of main axon
+				numMyelin_sec = 0
+			}			
+		} else {
+			numMyelin_sec = 0
+		}
+		numMyelin += numMyelin_sec		
+		numNode += numMyelin_sec
+		if (numMyelin_sec==0) numUnmyelin+=1 // if section still too thin/short for minimum myelin L, leave unmyelinated
+		myelinCnts.append(numMyelin_sec) // keeps number of myelin sections per existing section
+	}	
+	// create new axonal sections and add to SectionLists
+	create Myelin[numMyelin], Node[numNode]
+	if (numUnmyelin >= 1) {
+		create Unmyelin[numUnmyelin]			
+		//printf("Number of unmyelinated sections = %g\n",numUnmyelin)
+	}
+	forsec "Myelin" {
+		Myelin_secList.append() 
+		axonal.append()		
+	}
+	forsec "Node" {
+		Node_secList.append()	
+		axonal.append()	
+	}
+	forsec "Unmyelin" {
+		Unmyelin_secList.append()	
+		axonal.append()	
+	}
+	printf("Myelinating axon: Replacing %g Axonal sections w/ %g Myelin, %g Node, %g Unmyelin sections\n",numAxonal,numMyelin,numNode,numUnmyelin)
+	// connect Myelin[0] to iseg if exists before 1st bifurcation
+	if (include_PMAS_myelin==1) { 
+		print "Adding myelin before the 1st bifurcation"		
+		forsec iseg_secList {			
+			children_SecList = getchildren() // get existing children sections
+			forsec children_SecList	{disconnect()} // disconnect children from cell.axon[0]				
+			connect Myelin[0](0), 1 // connect 1st myelin section to iseg					
+			//printf("Iseg: connected Myelin[0] to %s\n",secname())
+			// get coordinates of original iseg
+			secx = getpt3d(1)
+			secy = getpt3d(2)
+			secz = getpt3d(3)
+			length = getpt3d(4)
+			diamvec = getpt3d(5)
+			last_pt3d_i = length.indwhere(">",min_PMAS)-1  // until 1st point that's farther than the PMAS length							
+			// remove points after last_pt3d_i, assign them to 1st myelin/node
+			while (arc3d(n3d()-1) > min_PMAS) {
+				pt3dremove(n3d()-1)				
+			}				
+			// get myelinL
+			myelinL = length.x[length.size()-1] - (min_PMAS + nodeL) // get new myelin length to fit all myelin/node sections in old section						
+		}			
+		Myelin[0] {
+			first_pt3d_i = last_pt3d_i
+			last_pt3d_i = length.indwhere(">",min_PMAS+myelinL)  // until 1st point that's farther than myelinL	
+			if (last_pt3d_i > first_pt3d_i) last_pt3d_i -= 1 // point before point that's farther than myelinL
+			//printf("Iseg: Myelin[%g], 1st pt = %g. Last point = %g\n",mye_cnt,first_pt3d_i,last_pt3d_i)
+			last_pt3d_i = add_new_points(first_pt3d_i,last_pt3d_i,secx,secy,secz,length,diamvec,myelinL,myelinL_error,1)
+		}
+		connect Node[0](0), Myelin[0](1) // connect 1st node to 1st myelin		
+		Node[0] {
+			first_pt3d_i = last_pt3d_i			
+			//length = get_arc3d(secx,secy,secz)
+			//last_pt3d_i = length.indwhere(">",myelinL + nodeL)
+			last_pt3d_i = length.size()-1 // set to last coordinate						
+			if (last_pt3d_i > first_pt3d_i) {
+				last_pt3d_i -= 1 
+			} else { // if less than or equal to 1st pt, use same point
+				last_pt3d_i = first_pt3d_i 	
+			}			
+			//printf("Iseg: Node[0], 1st pt = %g. Last point = %g\n",first_pt3d_i,last_pt3d_i)
+			/*
+			if (first_pt3d_i == last_pt3d_i){
+				//printf("	Adding 1st interpolated point\n")
+				add_interp_pt(last_pt3d_i,secx,secy,secz,diamvec,nodeL,-1) // add additional point along same direction as pt3d with distance nodeL							
+			}	
+			*/				
+			//assign_pts(first_pt3d_i,last_pt3d_i,secx,secy,secz,diamvec)	 // add 2nd point using original coordinates
+		
+			last_pt3d_i = add_new_points(first_pt3d_i,last_pt3d_i,secx,secy,secz,length,diamvec,nodeL,nodeL_error,1)
+			//printf("Iseg: Node[0].L = %.2f\n",L)
+		}			
+		forsec children_SecList { // reattach children of iseg
+			//printf("Disconnecting %s from parent\n",secname())
+			child_SecRef = new SectionRef()
+			disconnect() // disconnect from original parent (current section)				
+			connect child_SecRef.sec(0), Node[0](1)
+			//printf("Reconnecting to Node[%g]\n",0)
+		}
+		mye_cnt = 1 // myelin counter starts at 1, because 0 already added 
+		//print "Added myelin before 1st bifurcation"
+	} else {
+		// otherwise, first myelinated sections will be attached to Node[0], start at 0
+		mye_cnt = 0 		
+		print "No myelin before 1st bifurcation"		
+	} 	
+	// Assign parameters for Myelin[0] if necessary		
+	// Deal with rest of axon 	
+	sec_cnt = 0 // section counter, myelin section counter above (mye_cnt)
+	unmye_cnt = 0 // unmyelinated section counter	
+	forsec axon_secList { // replace each section with (myelin+node) units
+		// get coordinates of current section		
+		secx = getpt3d(1) 
+		secy = getpt3d(2)
+		secz = getpt3d(3)	
+		length = getpt3d(4) // outputs lengths of 3d points (not normalized)
+		diamvec = getpt3d(5) // outputs diameter of 3d points
+		// get children and parent sections in SectionLists
+		children_SecList = getchildren()
+		parent_SecList = getparent() 		
+		numMyelin_sec = myelinCnts.x[sec_cnt] // get number of myelin sections to create 				
+		//node_diam = diam(0)  // same node diameter for all nodes in this section
+		//myelin_diam = node_diam/g_ratio // same myelin diameter for all myelin in this section				
+
+		// Now that we've gotten all info we need, delete current section		
+		delete_section()
+		myelinL_sec = 0 // start at 0 for every axonal section being myelinated	
+		// Start connecting new sections replacing original axonal section
+		if (numMyelin_sec >=1 ) {			
+			//printf("First pt sec (%f,%f,%f) \n",secx.x[0],secy.x[0],secz.x[0])
+			forsec parent_SecList {
+				connect Myelin[mye_cnt](0), 1 // connect first myelin to end of original parent
+				// start coordinates at end of parent (in case original parent has already been replaced)
+				secx.x[0] = x3d(n3d()-1)
+				secy.x[0] = y3d(n3d()-1)
+				secz.x[0] = z3d(n3d()-1)
+				diamvec.x[0] = diam3d(n3d()-1)
+				length = get_arc3d(secx,secy,secz) // get new length vector with updated x,y,z vectors
+				//printf("New first pt sec (%f,%f,%f) \n",secx.x[0],secy.x[0],secz.x[0])
+				myelinL = (length.x[length.size()-1] - numMyelin_sec*nodeL)/numMyelin_sec // get new myelin length to fit all myelin/node sections in old section
+				// connect first myelin and nodal section to original parent			
+				//printf("Creating %g myelin (L=%.3f um) and nodes. n3d() = %g\n",numMyelin_sec,myelinL,length.size())
+				//printf("Connecting 1st Myelin[%g] to its parent: %s\n",mye_cnt,secname())
+			}
+			Myelin[mye_cnt] connect Node[mye_cnt](0), 1 // connect first node to end of first myelin
+			// assign coordinates and diameters for 1st myelinated section
+			Myelin[mye_cnt] {				
+				first_pt3d_i = 0 // start from 1st pt3d				
+				last_pt3d_i = length.indwhere(">",myelinL)  // until 1st point that's farther than myelinL								
+				if (last_pt3d_i > first_pt3d_i) {
+					last_pt3d_i -= 1 // point before point that's farther than myelinL
+				} 
+				//printf("Myelin[%g], 1st pt = %g. Last point = %g\n",mye_cnt,first_pt3d_i,last_pt3d_i)
+				//***** Add new point (before or after last_pt3d_i) or use existing ones to trace out myelin path
+				//print secname()
+				last_pt3d_i = add_new_points(first_pt3d_i,last_pt3d_i,secx,secy,secz,length,diamvec,myelinL,myelinL_error,1)								
+				//*****
+				myelinL_sec = L // add length of 1st myelin section to section's running total
+				//printf("L = %.3f. myelinL_sec = %.2f\n",L,myelinL_sec)
+			}			
+			// loop through remaining nodal/myelin sections, connect and give pt3d coordinates
+			if (numMyelin_sec >= 2) {
+				for nn = 0, numMyelin_sec-1 { 
+					//printf("Adding myelin+node section #%g\n",nn)
+					Node[mye_cnt+nn] { // start with 1st node - already connected to 1st myelin						
+						first_pt3d_i = last_pt3d_i // start at last point of previous section
+						//first_pt3d_i = length.indwhere(">",myelinL_sec)
+						last_pt3d_i = length.indwhere(">",myelinL_sec + nodeL)
+						if (last_pt3d_i > first_pt3d_i) {
+							last_pt3d_i -= 1 
+						} else { // if less than or equal to 1st pt, use same point
+							last_pt3d_i = first_pt3d_i 	
+						}
+						//last_pt3d_i = first_pt3d_i + 1 // use next point for interpolation
+						//last_pt3d_i = length.indwhere(">",(myelinL + nodeL)*(nn+1))						
+						//printf("Node[%g],1st pt = %g. Last point = %g\n",mye_cnt+nn,first_pt3d_i,last_pt3d_i)
+						//assign_pts(first_pt3d_i,first_pt3d_i,secx,secy,secz,diamvec) // add first point from original coordinates
+						// Add new point 1 µm in the direction of original axon, modify coordinate vectors												
+						last_pt3d_i = add_new_points(first_pt3d_i,last_pt3d_i,secx,secy,secz,length,diamvec,nodeL,nodeL_error,-1)																
+						//assign_pts(first_pt3d_i,last_pt3d_i,secx,secy,secz,diamvec)																	
+						// If adding another myelinated section, connect it to end of node
+						if (nn < numMyelin_sec-1)	connect Myelin[mye_cnt+nn+1](0), 1 // connect 1 end of current node (parent) to 0 end of next myelin (child)										
+						myelinL_sec += L
+						//printf("Node L=%.2f. myelinL_sec = %f\n",L,myelinL_sec)
+					}						
+					if (nn < numMyelin_sec-1) { // end section on node
+						Myelin[mye_cnt+nn+1] {																							
+							first_pt3d_i = last_pt3d_i
+							//first_pt3d_i = length.indwhere(">",myelinL_sec + nodeL*(nn+1)) // start at length after current total myelin length  
+							//first_pt3d_i = length.indwhere(">",myelinL_sec) // start at length after current total myelin length (incl node) 
+							//last_pt3d_i = length.indwhere(">",myelinL+myelinL_sec + nodeL*(nn+1))							
+							last_pt3d_i = length.indwhere(">",myelinL_sec+myelinL) // running total incl node							
+							//printf("last_i = %g. (%f,%f,%f). length(last_i) = %f. myelinL_sec = %.3f + myelinL = %.3f\n",last_pt3d_i,secx.x[last_pt3d_i],secy.x[last_pt3d_i],secz.x[last_pt3d_i],length.x[last_pt3d_i],myelinL_sec,myelinL)
+							//last_pt3d_i = length.indwhere(">",myelinL*(nn+2) + nodeL*(nn+1))														
+							if (last_pt3d_i > first_pt3d_i) {
+								last_pt3d_i -= 1 // point before point that's farther than myelinL
+							} else if (last_pt3d_i < 0) {
+								myelinL = length.x[length.size()-1] - length.x[first_pt3d_i] - nodeL // readjust myelinL for remaining part of section
+								last_pt3d_i = length.size() - 2 // use second to last point
+							}
+							//printf("Myelin[%g],1st pt = %g. Last point = %g\n",mye_cnt+nn+1,first_pt3d_i,last_pt3d_i)																					
+
+							last_pt3d_i = add_new_points(first_pt3d_i,last_pt3d_i,secx,secy,secz,length,diamvec,myelinL,myelinL_error,1)																
+							/*
+							if (first_pt3d_i == last_pt3d_i){
+								printf("	Adding interpolated point\n")
+								// add additional point along same direction as pt3d with distance myelinL
+								add_interp_pt(last_pt3d_i,secx,secy,secz,diamvec,myelinL,1) // use negative to interpolate forward 				 		
+							}										
+							assign_pts(first_pt3d_i,last_pt3d_i,secx,secy,secz,diamvec)							
+							*/							
+							myelinL_sec += L // add to running total
+							//printf("L = %.2f. myelinL_sec = %.2f\n",L, myelinL_sec)
+							connect Node[mye_cnt+nn+1](0), 1 // connect 0 end of next node (child) to 1 end of current myelin				
+						}
+					}												
+				} 
+			} else {
+				Node[mye_cnt] {
+					//first_pt3d_i = last_pt3d_i+1
+					//last_pt3d_i = length.indwhere(">",(myelinL + nodeL)*(nn+1))
+					first_pt3d_i = last_pt3d_i
+					last_pt3d_i = length.size()-1 // use last coordinate
+					/*
+					if (last_pt3d_i > first_pt3d_i) {
+						last_pt3d_i -= 1 
+					} else { // if less than or equal to 1st pt, use same point
+						last_pt3d_i = first_pt3d_i 	
+					}
+
+					if (first_pt3d_i == last_pt3d_i){
+						printf("	Adding 1st interpolated point\n")
+						add_interp_pt(last_pt3d_i,secx,secy,secz,diamvec,nodeL,-1) // add additional point along same direction as pt3d with distance nodeL							
+					}					
+					assign_pts(first_pt3d_i,last_pt3d_i,secx,secy,secz,diamvec)																	
+					*/
+					last_pt3d_i = add_new_points(first_pt3d_i,last_pt3d_i,secx,secy,secz,length,diamvec,nodeL,nodeL_error,1)
+				}
+			}		
+			// connect existing children to last node	
+			forsec children_SecList {
+				//printf("Disconnecting %s from parent\n",secname())
+				child_SecRef = new SectionRef()
+				disconnect() // disconnect from original parent (current section)								
+				connect child_SecRef.sec(0), Node[mye_cnt+numMyelin_sec-1](1)
+				//printf("Reconnecting to Node[%g]\n",mye_cnt+numMyelin_sec-1)
+			}
+			mye_cnt += numMyelin_sec
+		} else { // leave section unmyelinated
+			//printf("Leaving section unmyelinated\n")
+			// connect to parent
+			forsec parent_SecList connect Unmyelin[unmye_cnt](0), 1 
+			// assign coordinates
+			Unmyelin[unmye_cnt] {
+				assign_pts(0,secx.size()-1,secx,secy,secz,diamvec)
+			}
+			// connect to children
+			forsec children_SecList {
+				//printf("Disconnecting %s from parent\n",secname())
+				child_SecRef = new SectionRef()
+				disconnect() // disconnect from original parent (current section)
+				connect child_SecRef.sec(0), Unmyelin[unmye_cnt](1) // connect end of unmyelianted section to original children
+				//printf("Reconnecting to Unmyelin[%g]\n",unmye_cnt)
+			}
+			unmye_cnt += 1
+		}											
+		sec_cnt += 1 // increment section counter 1		
+	}
+	
+}
+
+obfunc getpt3d() { local dim, nn, ii localobj vec
+	// argument is 1, 2, 3, or 4, for x, y, z, or arc3d
+	dim = $1
+	nn = n3d()
+	vec = new Vector(nn)
+	if (dim == 1){
+		for ii = 0, nn-1 vec.x[ii] = x3d(ii)		
+	} else if (dim == 2){
+		for ii = 0, nn-1 vec.x[ii] = y3d(ii)		
+	} else if (dim == 3){
+		for ii = 0, nn-1 vec.x[ii] = z3d(ii)		
+	} else if (dim == 4){
+		for ii = 0, nn-1 vec.x[ii] = arc3d(ii)	
+		//vec.div(vec.x[nn-1]) // normalize length	
+	} else if (dim == 5){
+		for ii = 0, nn-1 vec.x[ii] = diam3d(ii)
+	}
+	return vec
+}
+
+// Returns section list with single entry for currently accessed section's parent
+obfunc getparent() { localobj current_sec, parent
+	current_sec = new SectionRef()
+	parent = new SectionList()
+	current_sec.parent() {
+		parent.append()
+	//	print "Parent: ", secname()
+	}
+	return parent
+}
+// Returns section list with entries for currently accessed section's parent
+obfunc getchildren() { local i localobj current_sec, children	
+	children = new SectionList()
+	children.children() // append children
+	//forsec children print "Child: ", secname()
+	return children 
+}
+
+//  assign pt3d points from original section to current new section
+// input first, last indices and coordinate vectors
+// assign_pts(i1,i2,x,y,z)
+proc assign_pts() { local i, i1, i2 localobj x, y, z, diamvec
+	i1 = $1
+	i2 = $2
+	x = $o3
+	y = $o4
+	z = $o5
+	diamvec = $o6	
+	for i = i1,i2 {
+		pt3dadd(x.x[i], y.x[i],z.x[i], diamvec.x[i]) // add selected points from vectors to current section
+	}
+	//printf("Added points from %g to %g. (%.3f,%.3f,%.3f) to (%.3f,%.3f,%.3f)\n",i1, i2, x.x[i1],y.x[i1],z.x[i1],x.x[i2],y.x[i2],z.x[i2])
+}
+// adds additional pt3d point using direction of current point and either next or previous point 
+// at interpolated distance using input length
+// dir is -1 or 1
+// add_interp_pt(last_pt3d_i,secx,secy,secz,diamvec,len,dir) 
+obfunc add_interp_pt() { local i1, len, xu, yu, zu,xn,yn,zn,dir localobj x,y,z,diams, inds, interp_pt
+	i1 = $1 // current coordinate
+	x = $o2
+	y = $o3
+	z = $o4
+	diams = $o5
+	len = $6
+	dir = $7	
+	inds = new Vector()
+	if (dir == 1){
+		inds.append(i1,i1+1) // extract i1 and next index to interpolate forward
+		x = x.ind(inds) // extract current coordinate and previous one
+		y = y.ind(inds)
+		z = z.ind(inds)	
+		xu = x.x[1] - x.x[0] // x displacement (forward)
+		yu = y.x[1] - y.x[0] 
+		zu = z.x[1] - z.x[0]
+		r = sqrt(xu^2 + yu^2 + zu^2) // total displacement
+		//printf("r = %f\n",r)
+		// add point at distance len and direction -<xu,yu,zu> from i2th coordinate (should be within section)
+		xn = x.x[0] + len*xu/r // new x point
+		yn = y.x[0] + len*yu/r 
+		zn = z.x[0] + len*zu/r
+
+	} else if (dir == -1) {
+		inds.append(i1-1,i1) // extract previous index and i2 to interpolate from last point
+		x = x.ind(inds) // extract current coordinate and previous one
+		y = y.ind(inds)
+		z = z.ind(inds)	
+		xu = x.x[1] - x.x[0] // x displacement (using previous point)
+		yu = y.x[1] - y.x[0] 
+		zu = z.x[1] - z.x[0]
+		r = sqrt(xu^2 + yu^2 + zu^2) // total displacement
+		//printf("r = %f\n",r)
+		// add point at distance len and direction -<xu,yu,zu> from i2th coordinate (should be within section)
+		xn = x.x[1] + len*xu/r // new x point
+		yn = y.x[1] + len*yu/r 
+		zn = z.x[1] + len*zu/r
+	}			
+	pt3dadd(xn, yn, zn, diams.x[i1]) 	
+	if (dir==1){
+		dist = sqrt( (xn - x.x[0] )^2 + (yn - y.x[0] )^2 + (zn - z.x[0] )^2  )
+		//printf("+1 Added point to %s (total %g): Start (%.5f,%.5f,%.5f). New (%.5f,%.5f,%.5f). Dist = %.3f\n",secname(),n3d(), x.x[0],y.x[0],z.x[0],xn,yn,zn,dist)
+	} else{
+		dist = sqrt( (xn - x.x[1])^2 + (yn - y.x[1])^2 + (zn - z.x[1])^2  )
+		//printf("-1 Added point to %s (total %g): Start (%.5f,%.5f,%.5f). New (%.5f,%.5f,%.5f). Dist = %.3f\n",secname(),n3d(), x.x[1],y.x[1],z.x[1],xn,yn,zn,dist)
+	}	
+	interp_pt = new Vector()
+	interp_pt.append(xn,yn,zn) // output coordinates of new point
+	return interp_pt
+}
+// add_new_points(secx,secy,secz,length,diamvec,interp_pt)				
+func add_new_points() { local first_pt3d_i, last_pt3d_i, secL, secerr, secL_add, dir localobj secx, secy, secz, length, diamvec, interp_pt
+	first_pt3d_i = $1
+	last_pt3d_i = $2
+	secx = $o3
+	secy = $o4
+	secz = $o5
+	length = $o6
+	diamvec = $o7
+	secL = $8
+	secerr = $9	
+	dir = $10
+	if (length.x[last_pt3d_i] - length.x[first_pt3d_i] >= secL + secerr ) { 		
+	// pt3d coordinates would make section too long					
+		//printf("dist: %f - %f = %f. secL = %f. secerr = %f\n",length.x[last_pt3d_i],length.x[first_pt3d_i],length.x[last_pt3d_i] - length.x[first_pt3d_i],secL,secerr)	
+		last_pt3d_i -= 1 // use 2nd to last coordinate		
+		assign_pts(first_pt3d_i,last_pt3d_i,secx,secy,secz, diamvec) // add existing points (shortened)
+		secL_add = secL - (length.x[last_pt3d_i] - length.x[first_pt3d_i]) // distance of interpolated point from last existing point			
+		//printf("Adding point to make section shorter at %g with secL_add = %.3f\n",last_pt3d_i,secL_add)
+		interp_pt = add_interp_pt(last_pt3d_i,secx,secy,secz,diamvec, secL_add, dir)		
+		// replace old point to coordinate, length, and diameter vectors
+		/*
+		secx.x[last_pt3d_i] = interp_pt.x[0]
+		secy.x[last_pt3d_i] = interp_pt.x[1]
+		secz.x[last_pt3d_i] = interp_pt.x[2]
+		length.x[last_pt3d_i] = length.x[last_pt3d_i-1] + sqrt( (secx.x[last_pt3d_i] - interp_pt.x[0])^2 + (secy.x[last_pt3d_i]-interp_pt.x[1])^2 + (secz.x[last_pt3d_i]-interp_pt.x[2])^2 ) 		
+		*/
+		// don't change diamvec entry, since this wasn't changed		
+		
+		secx.insrt(last_pt3d_i+1,interp_pt.x[0])
+		secy.insrt(last_pt3d_i+1,interp_pt.x[1])
+		secz.insrt(last_pt3d_i+1,interp_pt.x[2])
+		length.insrt(last_pt3d_i+1,length.x[last_pt3d_i]+sqrt((secx.x[last_pt3d_i] - interp_pt.x[0])^2 + (secy.x[last_pt3d_i]-interp_pt.x[1])^2 + (secz.x[last_pt3d_i]-interp_pt.x[2])^2) ) // insert distnace of new point from first point
+		//printf("Inserting length: %f + %f = %f\n",length.x[last_pt3d_i], sqrt( (secx.x[last_pt3d_i] - interp_pt.x[0])^2 + (secy.x[last_pt3d_i]-interp_pt.x[1])^2 + (secz.x[last_pt3d_i]-interp_pt.x[2])^2 ),length.x[last_pt3d_i] + sqrt( (secx.x[last_pt3d_i] - interp_pt.x[0])^2 + (secy.x[last_pt3d_i]-interp_pt.x[1])^2 + (secz.x[last_pt3d_i]-interp_pt.x[2])^2 ) )
+		diamvec.insrt(last_pt3d_i+1,diamvec.x[last_pt3d_i]) // insert same diameter of previous point		
+		
+		return last_pt3d_i+1 // position of new point in modified coordinate vectors	
+	} else if (length.x[last_pt3d_i] - length.x[first_pt3d_i] <= (secL - secerr) ) {
+		// pt3d coordinates would make section too short
+		// add additional point using existing coordinates direction		
+		//printf("dist2: %f - %f = %f. secL = %f. secerr = %f\n",length.x[last_pt3d_i],length.x[first_pt3d_i],length.x[last_pt3d_i] - length.x[first_pt3d_i],secL,secerr)	
+		assign_pts(first_pt3d_i,last_pt3d_i,secx,secy,secz, diamvec) // add existing points (shortened)		
+		secL_add = secL - (length.x[last_pt3d_i] - length.x[first_pt3d_i]) // distance of interpolated point from last existing point to make L=myelinL
+		//printf("Adding point to make section longer at %g with secL_add = %.3f\n",last_pt3d_i,secL_add)	
+		interp_pt = add_interp_pt(last_pt3d_i,secx,secy,secz,diamvec,secL_add,dir)						
+		// insert new point to coordinate, length, and diameter vectors
+		secx.insrt(last_pt3d_i+1,interp_pt.x[0])
+		secy.insrt(last_pt3d_i+1,interp_pt.x[1])
+		secz.insrt(last_pt3d_i+1,interp_pt.x[2])		
+		//printf("Inserting length: %f + %f = %f\n",length.x[last_pt3d_i], sqrt( (secx.x[last_pt3d_i] - interp_pt.x[0])^2 + (secy.x[last_pt3d_i]-interp_pt.x[1])^2 + (secz.x[last_pt3d_i]-interp_pt.x[2])^2 ),length.x[last_pt3d_i] + sqrt( (secx.x[last_pt3d_i] - interp_pt.x[0])^2 + (secy.x[last_pt3d_i]-interp_pt.x[1])^2 + (secz.x[last_pt3d_i]-interp_pt.x[2])^2 ) )
+		length.insrt(last_pt3d_i+1, length.x[last_pt3d_i] + sqrt( (secx.x[last_pt3d_i] - interp_pt.x[0])^2 + (secy.x[last_pt3d_i]-interp_pt.x[1])^2 + (secz.x[last_pt3d_i]-interp_pt.x[2])^2 )) // insert distnace of new point from first point
+		diamvec.insrt(last_pt3d_i+1,diamvec.x[last_pt3d_i]) // insert same diameter of previous point
+		return last_pt3d_i+1 // position of new point in modified coordinate vectors	
+	} else {
+		// just use existing points	
+		//printf("dist: %f - %f = %f. secL = %f. secerr = %f\n",length.x[last_pt3d_i],length.x[first_pt3d_i],length.x[last_pt3d_i] - length.x[first_pt3d_i],secL,secerr)	
+		assign_pts(first_pt3d_i,last_pt3d_i,secx,secy,secz,diamvec)						
+		//printf("Used existing points, giving L= %.2f\n",L)
+		return last_pt3d_i // position of new point in modified coordinate vectors		
+	}	
+}
+
+// sets 2 comp per chunkSize in specified sectionList
+// geom_nseg(chunkSize,secList)
+proc geom_nseg() { local secIndex, chunkSize localobj seclist                                  
+    chunkSize = 40                                                              
+    if( numarg() > 0 ) {                                                        
+        chunkSize = $1                                                          
+    }  
+    seclist = $o2                                                                             
+    secIndex=0                                                                  
+    forsec seclist {                                                                
+        nseg = 1 + 2*int(L/chunkSize)                                           
+        secIndex += 1                                                   
+    }                                                                           
+} 
+
+obfunc get_arc3d() {local i, dist_i localobj x, y, z, length
+	x = $o1
+	y = $o2
+	z = $o3
+	length = new Vector(x.size())
+	length.x[0] = 0 // first point starts at 0
+	for i = 1, x.size() -1 {
+		dist_i = sqrt( (x.x[i] - x.x[i-1])^2 + (y.x[i] - y.x[i-1])^2 + (z.x[i] - z.x[i-1])^2  )
+		length.x[i] = length.x[i-1] + dist_i
+	}
+	return length
+}
+
+// Get main axon using ascending approach - starting from lowest z point and going to AIS
+// objref main_ax
+// main_ax = get_main_ax()
+// also outputs min_sec_ind, access using secrefs.o(min_sec_ind)
+main_ax_rad = 500 // um main descending axon should be within this radius
+obfunc get_main_ax() { local i, minz, min_ind, xi, yi, zi, at_root localobj main_ax, prune_secs, current_secref	
+	//prune_secs = cell.axonal // copy axonal into prune_secs
+	main_ax = new SectionList() // main axon sections	
+	// Rotate cell if necessary to align S-D axis with z-axis
+	if (cell_rotated == 0) {
+		x_rotate(cell.all) // sets cell_rotated to 1
+		setpointers()	
+		//printf("Rotated cell\n")		
+	}
+	// Find lowest point of axon (on z axis)	
+	minz = 100 // initialize	
+	for i = 0,numSect-1 {				
+		if (zList.o(i).min < minz){
+			min_ind = zList.o(i).min_ind
+			xi = xList.o(i).x[min_ind]
+			yi = yList.o(i).x[min_ind]
+			rdist = sqrt((xi-secrefs.o(0).sec.x_xtra(0.5))^2+ (yi-secrefs.o(0).sec.y_xtra(0.5))^2 )
+			if (rdist < main_ax_rad){ // make sure compartment is not an oblique, descending collateral by ensuring it's within a horizontal radius
+				minz = zList.o(i).min
+				min_sec_ind = i // get index of section with lowest z-value, corresponds to terminal compartment
+			}			
+		} 
+	}
+	// ascend axon 
+	at_root = 0
+	current_secref = secrefs.o(min_sec_ind)		
+	while (!at_root) { // loop until reach root		
+		if (current_secref.has_parent){	
+			current_secref.sec main_ax.append() // add to SectionList
+			current_secref.parent {
+				current_secref = new SectionRef() // make parent current secref 
+			}					
+		} else {
+			at_root = 1
+		}
+	}		
+	return main_ax
+}
+
+// Get main axon using descending approach - choose biggest of branches
+obfunc get_main_ax2() { local i, biggest_branch_diam, biggest_branch_ind, at_terminal localobj main_ax, prune_secs, current_secref, terminal_sec_str, current_sec_str	
+	//prune_secs = cell.axonal // copy axonal into prune_secs
+	main_ax = new SectionList() // main axon sections	
+	// Rotate cell if necessary to align S-D axis with z-axis
+	if (cell_rotated == 0) {
+		x_rotate(cell.all) // sets cell_rotated to 1
+		setpointers()					
+	}	
+	// descend axon 
+	at_terminal = 0
+	cell.axon[0] current_secref = new SectionRef() // start at cell.axon[0] (initial segment/axon hillock)
+	while (!at_terminal) { // loop until reach root
+		current_secref.sec main_ax.append() // add to SectionList
+		if (current_secref.nchild > 0){
+			biggest_branch_diam = 0	// diameter of biggest child branch
+			biggest_branch_ind = 0 // index of biggest child branch among current_secref's children
+			for i = 0,current_secref.nchild - 1 {
+				if(current_secref.child[i].diam(0) > biggest_branch_diam) {
+					biggest_branch_diam = current_secref.child[i].diam(0)
+					biggest_branch_ind = i
+				}
+			}			
+			current_secref.child[biggest_branch_ind] { // make biggest child branch new current_sec, append to main-ax
+				current_secref = new SectionRef() // make child current secref 
+			}					
+		} else {
+			at_terminal = 1
+			terminal_sec_str = new String()
+			current_secref.sec terminal_sec_str.s = secname()
+			current_sec_str = new String()
+			for i = 0, numSect - 1 {
+				secrefs.o(i).sec current_sec_str.s = secname()  
+				if (strcmp(current_sec_str.s,terminal_sec_str.s) == 0){ // compare each secname to terminal secname to get index - 0 means identical
+					min_sec_ind = i
+					//printf("Terminal section: %s, index: %g\n",terminal_sec_str.s,min_sec_ind)
+				}
+			}
+		}
+	}		
+	return main_ax
+}
+
+// input sectionlist and check if currently accessed section is a member
+// in_secList = check_in_secList(SectionList) 
+// returns 1 if in sectionlist
+func check_in_secList() { localobj temp_secList
+	// copy into new sectionlist
+	temp_secList = new SectionList()
+	forsec $o1 temp_secList.append()
+	temp_secList.append() // append currently accessed section
+	return (temp_secList.unique > 0)
+}
+
+proc make_pas() {
+	if (ismembrane("Ca_HVA")) uninsert Ca_HVA
+	if (ismembrane("SKv3_1")) uninsert SKv3_1
+	if (ismembrane("SK_E2")) uninsert SK_E2
+	if (ismembrane("Ca_LVAst")) uninsert Ca_LVAst
+	if (ismembrane("Ih")) uninsert Ih
+	if (ismembrane("NaTs2_t")) uninsert NaTs2_t
+	if (ismembrane("CaDynamics_E2")) uninsert CaDynamics_E2
+	if (ismembrane("Nap_Et2")) uninsert Nap_Et2
+	if (ismembrane("K_Pst")) uninsert K_Pst
+	if (ismembrane("K_Tst")) uninsert K_Tst
+	if (ismembrane("NaTa_t")) uninsert NaTa_t
+	if (ismembrane("Im")) uninsert Im
+}
+
+// input scale factor and section list, scales morphology
+proc scale_diam() { local f,i localobj diams, diams2, scale_seclist
+	f = $1 // scale factor
+	scale_seclist = $o2
+	diams = new Vector()
+	forsec scale_seclist {
+		for(x,0) {
+			diams.append(diam(x))
+		}
+	}
+	diams2 = diams.mul(f)
+	i = 0
+	forsec scale_seclist {
+		for(x,0){
+			diam(x) = diams2.x[i]
+			i += 1
+		}
+	}
+}
+// input scale factor and section list, scales pt3d diam info
+proc scale_diam2() { local f,i,ii localobj diams, diams2, diams_sec,scale_seclist
+	f = $1 // scale factor
+	scale_seclist = $o2
+	diams = new Vector()
+	forsec scale_seclist {
+		diams_sec = getpt3d(5)
+		diams.append(diams_sec) // append this sections diam vector
+	}
+	diams2 = diams.mul(f)
+	i = 0
+	forsec scale_seclist {
+		for ii = 0, n3d() - 1{
+			pt3dchange(ii,diams2.x[i])
+			i += 1
+		}
+	}
+}
+// input myelin section list, scales based on diameter dependent g_ratio taken from (Micheva 2016)
+proc scale_diam3() { local f, i, ii, nn localobj diams, diams2, diams_sec, scale_seclist, g_ratios,g_ratios_sec, ones
+	scale_seclist = $o1
+	diams = new Vector()	
+	g_ratios_sec = new Vector()		
+	g_ratios = new Vector()
+	forsec scale_seclist {
+		diams_sec = getpt3d(5)
+		diams.append(diams_sec) // append this sections diam vector		
+		g_ratios_sec = getGratioVecMicheva2016(diams_sec)		
+		g_ratios.append(g_ratios_sec)		
+	}
+	ones = new Vector(g_ratios.size())
+	ones = ones.c.fill(1)	
+	diams2 = diams.c.mul(ones.c.div(g_ratios)) // scale each compartment diameter by its specific g_ratio
+	i = 0
+	forsec scale_seclist {
+		for ii = 0, n3d() - 1{
+			pt3dchange(ii,diams2.x[i])			
+			i += 1
+		}
+	}
+	//printf("Scaled diameter of myelin sections using variable g-ratio\n")	
+}
+// getGratioMicheva2016(diam) - takes scalar input
+func getGratioMicheva2016() { local d, p1, p2, p3, p4
+	d = $1
+	p1 = 0.6425 // polynomial curve fit of d vs. g_ratio from Micheva 2016 data
+	p2 = -1.778
+	p3 = 1.749
+	p4 = 0.1518
+	return p1*d^3 + p2*d^2 + p3*d + p4
+}
+// getGratioVecMicheva2016(diam_vec) - takes vector input
+obfunc getGratioVecMicheva2016() { local p1, p2, p3, p4 localobj diam_vec, g_ratio_vec 
+	diam_vec = $o1
+	p1 = 0.6425 // polynomial curve fit of d vs. g_ratio from Micheva 2016 data
+	p2 = -1.778
+	p3 = 1.749
+	p4 = 0.1518
+	g_ratio_vec = new Vector()
+	g_ratio_vec = diam_vec.c.pow(3).mul(p1)
+	g_ratio_vec = diam_vec.c.pow(3).mul(p1) 
+	g_ratio_vec = g_ratio_vec.c.add(diam_vec.c.pow(2).mul(p2))
+	g_ratio_vec = g_ratio_vec.c.add(diam_vec.c.mul(p3))
+	g_ratio_vec = g_ratio_vec.c.add(p4)
+	for nn = 0, g_ratio_vec.size()-1 {
+		if (g_ratio_vec.x[nn] > 0.80) g_ratio_vec.x[nn] = 0.80 // set max g-ratio 
+		if (g_ratio_vec.x[nn] < 0.40) g_ratio_vec.x[nn] = 0.40 // set min g-ratio
+	}
+	return g_ratio_vec
+}
+
+proc scale_diam4() { local f, i, ii, nn localobj diams, diams2, diams_sec, scale_seclist, g_ratios,g_ratios_sec
+	scale_seclist = $o1
+	diams = new Vector()	
+	g_ratios_sec = new Vector()		
+	g_ratios = new Vector()
+	forsec scale_seclist {
+		diams_sec = getpt3d(5)
+		diams.append(diams_sec) // append this sections diam vector		
+		g_ratios_sec = getGratioVecMicheva2016(diams_sec)		
+		g_ratios.append(g_ratios_sec)		
+	}	
+	diams2 = diams.c.mul(g_ratios) // scale each compartment diameter by its specific g_ratio
+	i = 0
+	forsec scale_seclist {
+		for ii = 0, n3d() - 1{
+			pt3dchange(ii,diams2.x[i])			
+			i += 1
+		}
+	}
+	printf("Scaled diameter of node sections using variable g-ratio\n")	
+}

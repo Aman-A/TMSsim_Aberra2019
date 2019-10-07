@@ -1,0 +1,10 @@
+//2d array of objects
+// object_array = new O2d(m,n)
+// access using: object_array.o[m][n]
+begintemplate O2d
+	public o
+	objref o[1][1]
+	proc init() {
+		objref o[$1][$2]
+	}
+endtemplate O2d

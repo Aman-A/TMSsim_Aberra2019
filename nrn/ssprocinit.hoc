@@ -1,0 +1,40 @@
+objref fih
+// set_init() - if ss_init = 1, uses steady state initialization, otherwise standard
+proc set_init() {			
+	if (ss_init == 1) {
+		fih = new FInitializeHandler(2, "finit(init_tstart,init_dt)")		
+    fprint("Using steady state initialization: init_tsart = %g, init_dt = %g\n",init_tstart,init_dt)
+	} else {
+		// fih = new FInitializeHandler(2, "init()")		
+		objref fih
+	}
+}
+set_init(ss_init)
+//finit(init_tstart,init_dt)
+proc finit() {
+  if (numarg() < 1) {
+	  t = -1e11
+  } else {
+	  t = $1
+  }
+  dtsav = dt
+  if (numarg() < 2) {
+	  dt = 1e9
+  } else {
+	  dt = $2
+  }  
+  // if cvode is on, turn it off to do large fixed step
+  temp = cvode.active()
+  if (temp!=0) { cvode.active(0) }
+  while (t<-dt) { fadvance() }
+  // restore cvode if necessary
+  if (temp!=0) { cvode.active(1) }
+  dt = dtsav
+  t = 0
+  if (cvode.active()) {
+    cvode.re_init()
+  } else {
+    fcurrent()
+  }
+  frecord_init()  
+}

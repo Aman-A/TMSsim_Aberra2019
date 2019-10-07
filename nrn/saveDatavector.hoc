@@ -1,0 +1,32 @@
+proc file__saveDataVector(){localobj file_ref, temp_save_vec
+// 
+//	saveDataVector(file_path,list_obj)
+//
+
+	file_ref      = new File()
+	temp_save_vec = new Vector()
+
+	file_ref.wopen($s1)
+	temp_save_vec = $o2
+	temp_save_vec.vwrite(file_ref,4)
+	file_ref.close()
+}
+
+proc file__saveDataVectors(){local num_points localobj file_ref, temp_save_vec 
+// 
+//	saveDataVector(file_path,list_obj,numvecs)
+//  must be a 1 x numvecs object array (O2d)
+	numvecs = $3
+	file_ref      = new File()
+	temp_save_vec = new Vector()
+	file_ref.wopen($s1)
+	temp_save_vec = $o2.o[0][0] 
+	num_points = temp_save_vec.size() // get number of points from first vector (all must be the same)
+	temp_save_vec.insrt(0,num_points,numvecs) // add to start of vector to be read in MATLAB
+	temp_save_vec.vwrite(file_ref,4) // save first vector 
+	for n = 1,numvecs-1{ //save rest of vectors
+		temp_save_vec = $o2.o[0][n]
+		temp_save_vec.vwrite(file_ref,4)
+	}
+	file_ref.close()
+}
