@@ -1,0 +1,371 @@
+/** Simulation control **/
+// define folder where all data files of current run will be saved
+strdef run_data_folder
+sprint(run_data_folder,"%stmp/%s",nrn_dir,run_name)
+proc stimul() {
+	finitialize(v_init)
+	setstim(AMP) // set amplitude of stimulation waveform
+	run()
+	//printf("Efield amp = %.5f V/m\n",AMP) // print E-field amplitude
+}
+objref tvec, vm_mat // record time and voltages 
+objref netids_all, netcon_tmp, nil // for saving ap times and netids from centers
+objref netcon_tmp1, netcon_tmp2 // for saving ap times and netids when recording from centers and ends
+objref vm_oarray,secnames[2] // array of Vm vectors (from x=0.5, 1/section, or every compartment)
+
+somaAP_thresh = -20 // mV - AP threshold detection in soma
+cellAP_thresh = 0 // mV - AP threshold detection in axon
+// Vm recording
+// init_record_vm(vm_record_mode)
+/* vm_record_mode:
+ 1 - soma only
+ 2 - section centers
+ 3 - section centers and ends
+ 4 - all compartments
+ 5 - iseg only
+ 6 - soma and iseg
+ */
+proc init_record_vm() { local rmode, i, ii, ir, in
+	rmode = $1
+	objref vm_oarray //reinitialize
+	if (rmode == 1){ // record Vm from soma only
+		num_vm_record = 1
+		vm_oarray = new O2d(1,num_vm_record) // object containing array of vectors					
+		vm_oarray.o[0][0] = new Vector(tstop/record_dt) // vm vector for object array of vectors (to be saved in binary format)		
+		cell.soma { // soma
+			vm_oarray.o[0][0].record(&cell.soma.v(0.5),record_dt) // set up recording																		
+		} 
+		printf("Recording Vm from soma\n")
+	} else if (rmode == 2){ // section centers
+		num_vm_record = numSect
+		vm_oarray = new O2d(1,num_vm_record) // object containing array of vectors
+		for i = 0,num_vm_record-1{
+			vm_oarray.o[0][i] = new Vector(tstop/record_dt) // vm vector for object array of vectors (to be saved in binary format)				
+			secrefs.o(i).sec {
+				vm_oarray.o[0][i].record(&secrefs.o(i).sec.v(0.5),record_dt)				
+			}
+		}
+		printf("Recording Vm from %g section centers\n",num_vm_record)
+	} else if (rmode == 3){ // section centers and ends
+		num_vm_record = numSect*2 - 1 // record at 0.5 and 1 for all sections besides soma	
+		vm_oarray = new O2d(1,num_vm_record) // object containing array of vectors
+		// in soma, record from 0.5 and save single name
+		vm_oarray.o[0][0] = new Vector(tstop/record_dt)		
+		secrefs.o(0).sec { 
+			vm_oarray.o[0][0].record(&secrefs.o(0).sec.v(0.5),record_dt)			
+		}
+		// rest of sections
+		for i = 1,numSect-1 { // increment through sections
+			ir = 2*i-1 // increment through recording points
+			vm_oarray.o[0][ir] = new Vector(tstop/record_dt) // vm vector for object array of vectors (to be saved in binary format)		
+			vm_oarray.o[0][ir+1] = new Vector(tstop/record_dt)			
+			secrefs.o(i).sec {
+				vm_oarray.o[0][ir].record(&secrefs.o(i).sec.v(0.5),record_dt) // record from x = 0.5
+				vm_oarray.o[0][ir+1].record(&secrefs.o(i).sec.v(1),record_dt)	// record from x = 1				
+			}
+		}
+		printf("Recording Vm from %g section centers and ends\n",num_vm_record)
+	} else if (rmode == 4) { // all compartments
+		num_vm_record = numComp // use for AP recording
+		objref vm_oarray // reinitialize		
+		vm_oarray = new O2d(1,num_vm_record) // object containing array of vectors									
+		// in soma, record from 0.5 and save single name
+		vm_oarray.o[0][0] = new Vector(tstop/record_dt)		
+		secrefs.o(0).sec { 
+			vm_oarray.o[0][0].record(&secrefs.o(0).sec.v(0.5),record_dt)			
+		}
+		// create secname and sectypes vectors		
+		in = 0 // start index at 1 (+1 added below), starts with soma at 0, retains count between sections
+		for i = 1, numSect-1 {						
+			secrefs.o(i).sec {
+				for(x,0) {				
+					ii = in + (2*nseg*x+1)/2
+					vm_oarray.o[0][ii] = new Vector(tstop/record_dt) // vm vector for this compartment
+					vm_oarray.o[0][ii].record(&secrefs.o(i).sec.v(x),record_dt) // record from all x					
+				}
+				in = ii			
+			}		
+		}	
+		printf("Recording Vm from all %g compartments\n",num_vm_record)
+	} else if (rmode == 5) { // iseg only (x = 0.5)
+		num_vm_record = 1
+		vm_oarray = new O2d(1,num_vm_record)
+		vm_oarray.o[0][0] = new Vector(tstop/record_dt)		
+		if (replace_axon) { // replaced full axon with iseg (axon[0] and axon[1])
+			axon[1] {
+				vm_oarray.o[0][0].record(&v(0.5),record_dt)
+			}
+			printf("Recording Vm from axon[1].v(0.5)\n")
+		} else { // cell.axon[0] still exists
+			cell.axon[0] { // first axonal section
+				vm_oarray.o[0][0].record(&v(0.5),record_dt)
+			}
+			printf("Recording Vm from cell.axon[0].v(0.5)\n")			
+		}				
+	} else if (rmode == 6) { // soma and iseg (x = 0.5)
+		num_vm_record = 2
+		vm_oarray = new O2d(1,num_vm_record)
+		vm_oarray.o[0][0] = new Vector(tstop/record_dt)	
+		// soma
+		cell.soma { 
+			vm_oarray.o[0][0].record(&cell.soma.v(0.5),record_dt) // set up recording																		
+		} 
+		// iseg
+		vm_oarray.o[0][1] = new Vector(tstop/record_dt)	
+		if (replace_axon) { // replaced full axon with iseg (axon[0] and axon[1])
+			axon[1] {
+				vm_oarray.o[0][1].record(&v(0.5),record_dt)
+			}	
+			printf("Recording Vm from soma and axon[0]\n")		
+		} else { // cell.axon[0] still exists
+			cell.axon[0] { // first axonal section
+				vm_oarray.o[0][1].record(&v(0.5),record_dt)
+			}
+			printf("Recording Vm from soma and cell.axon[0]\n")						
+		}
+	}
+}
+// spikes recording
+// init_record_spikes(spike_record_mode)
+/* spike_record_mode:
+ 1 - soma only
+ 2 - section centers
+ 3 - section centers and ends
+ 4 - all compartments
+ 5 - iseg only
+ 6 - soma and iseg
+ */
+proc init_record_spikes(){ local rmode, i, ii, ir, in
+	rmode = $1
+	objref ap_times_all, netids_all // reinitialize
+	ap_times_all = new Vector()
+	netids_all = new Vector()
+	if (rmode == 1) { // soma only
+		num_spikes_record = 1
+		cell.soma {
+			netcon_tmp = new NetCon(&v(0.5), nil)
+		}
+		netcon_tmp.threshold = somaAP_thresh
+		netcon_tmp.record(ap_times_all,netids_all,1) // all netids will be 1
+		objref netcon_tmp	
+		printf("Recording spikes from soma\n")
+	} else if (rmode == 2){ // section centers
+		num_spikes_record = numSect
+		for i = 0, numSect-1{
+			secrefs.o(i).sec {
+				netcon_tmp = new NetCon(&v(0.5),nil)
+				netcon_tmp.threshold = cellAP_thresh
+				netcon_tmp.record(ap_times_all,netids_all,i+1) // record ap times to ap_times_all and the id of each event in netids_all
+				objref netcon_tmp			
+			}
+		}
+		printf("Recording spikes from %g section centers\n",num_spikes_record)
+	} else if (rmode == 3){ // section centers and ends
+		// record from soma at x=0.5
+		num_spikes_record = 2*numSect - 1
+		cell.soma { // soma id = 1
+			netcon_tmp1 = new NetCon(&v(0.5),nil)
+			netcon_tmp1.threshold = cellAP_thresh
+			netcon_tmp1.record(ap_times_all,netids_all,1) // record ap times to ap_times_all and the id of each event in netids_all
+			objref netcon_tmp1			
+		}
+		// record from rest of sections at x=0.5 an x=1
+		for i = 1, numSect-1{
+			ir = 2*i-1
+			secrefs.o(i).sec {
+				netcon_tmp1 = new NetCon(&v(0.5),nil)
+				netcon_tmp2 = new NetCon(&v(1),nil)
+				netcon_tmp1.threshold = cellAP_thresh
+				netcon_tmp2.threshold = cellAP_thresh
+				netcon_tmp1.record(ap_times_all,netids_all,ir+1) // record ap times to ap_times_all and the id of each event in netids_all
+				netcon_tmp2.record(ap_times_all,netids_all,ir+2) // record ap times to ap_times_all and the id of each event in netids_all
+				objref netcon_tmp1, netcon_tmp2 // reinitialize			
+			}
+		}
+		printf("Recording spikes from %g section centers and ends\n",num_spikes_record)
+	} else if (rmode == 4){ // all compartments		
+		num_spikes_record = numComp // use for AP recording
+		in = 0	// start netids at 1, retains count between sections
+		for i = 0, numSect-1 {		
+			secrefs.o(i).sec {				
+				for (x,0) { 					
+					ii = in + (2*nseg*x+1)/2							
+					netcon_tmp = new NetCon(&secrefs.o(i).sec.v(x),nil)				
+					netcon_tmp.threshold = cellAP_thresh					
+					netcon_tmp.record(ap_times_all,netids_all,ii)					
+					//printf("ix=%g. Inserted netcon at v(%.2f) with netid = %g\n",ix,xval,ii)
+					objref netcon_tmp // reinitialize	
+				}			
+				in = ii			
+			}
+		}
+		printf("Recording spikes from all %g compartments\n",num_spikes_record)
+	} else if (rmode == 5){ // iseg only
+		num_spikes_record = 1
+		if (replace_ax) { // replaced full axon with iseg (axon[0] and axon[1])
+			axon[1] {
+				netcon_tmp = new NetCon(&v(0.5),nil)
+			}
+		} else { // cell.axon[0] still exists
+			cell.axon[0] { // soma
+				netcon_tmp = new NetCon(&v(0.5), nil)
+			}					
+		}
+		netcon_tmp.threshold = cellAP_thresh
+		netcon_tmp.record(ap_times_all,netids_all,1) // all netids will be 1
+		objref netcon_tmp // clear object	
+		printf("Recording spikes from iseg\n")	
+	} else if (rmode == 6){ // soma and iseg
+		num_spikes_record = 2
+		// soma
+		cell.soma { // soma id = 1
+			netcon_tmp = new NetCon(&v(0.5),nil)
+			netcon_tmp.threshold = cellAP_thresh
+			netcon_tmp.record(ap_times_all,netids_all,1) // record ap times to ap_times_all and the id of each event in netids_all
+			objref netcon_tmp
+		}
+		if (replace_ax) { // replaced full axon with iseg (axon[0] and axon[1])
+			axon[1] {
+				netcon_tmp = new NetCon(&v(0.5),nil)
+			}
+		} else { // cell.axon[0] still exists
+			cell.axon[0] { // soma
+				netcon_tmp = new NetCon(&v(0.5), nil)
+			}					
+		}
+		netcon_tmp.threshold = cellAP_thresh
+		netcon_tmp.record(ap_times_all,netids_all,1) // all netids will be 1
+		objref netcon_tmp // clear object
+		printf("Recording spikes from soma and iseg\n")	
+	}
+}
+proc run_stim() { 	
+	// create cell
+	cell_chooser(cell_id,cell_model_name)		
+	// get newest extracellular potentials
+	getes()
+	// initialize data vectors
+	objref tvec, vm_mat // record time and voltages 
+	// record time
+	tvec = new Vector()
+	tvec.record(&t,record_dt)
+	// record Vm and spikes
+	init_record_vm(vm_record_mode)
+	init_record_spikes(spike_record_mode)
+	// apply stimulus and run
+	printf("Efield amp = %.5f V/m\n",AMP) // print E-field amplitude
+	stimul()
+	// save data		
+	// define data file names
+	strdef t_file, vm_file, vm_file_bin, ap_all_file, netids_all_file 		
+	// Save vm matrix as binary file directly to one file
+		sprint(vm_file_bin,"%s/vm_data_bin.txt",run_data_folder)
+		printf("Vm vec size = %g\n", vm_oarray.o[0][0].size())
+		file__saveDataVectors(vm_file_bin,vm_oarray,num_vm_record)			
+		printf("Saved Vm vectors to binary file in %s\n",vm_file_bin)
+	// save spike times and vector of section ids		
+		sprint(ap_all_file,"%s/ap_times_all.txt",run_data_folder)
+		sprint(netids_all_file,"%s/ap_netids_all.txt",run_data_folder)		
+		file__saveDataVector(ap_all_file,ap_times_all) // spike times
+		file__saveDataVector(netids_all_file,netids_all) // netids
+		printf("Saved ap times to %s\n and netids  %s\n",ap_all_file,netids_all_file)		
+	// save time vector
+		sprint(t_file,"%s/tvec.txt",run_data_folder)
+		file__saveDataVector(t_file,tvec)
+		printf("Saved time vector to %s\n",t_file)
+}
+// print F to run folder
+proc printF() { 
+	strdef F_file
+	sprint(F_file,"%s/F_curr_amp_%.2fnA.txt",run_data_folder,st_amp)
+	if (record_mode == 5 || record_mode == 6){
+		F = ap_times_all.size()/(tstop*1e-3) // frequency in Hz
+	}
+	wopen(F_file)
+	fprint("%f\n",F)
+	wopen()
+	printf("F = %.2f Hz, saved to F.txt\n",F)
+}
+// procedure for finding threshold and printing data files at given angle, phi, of Efield
+//print "type find_thresh() to find threshold"
+proc find_thresh() { localobj tvec, vm_fileobj //vm_mat		
+	// create cell
+	cell_chooser(cell_id,cell_model_name)	
+	// get extracellular potentials
+	getes()
+	// record spikes for threshold finder
+	init_record_spikes(spike_record_mode)
+	// find threshold
+	if (AMP < 0) {			
+		threshE = threshold_neg(&AMP) // positive amplitude threshold
+	} else { 
+		threshE = threshold_pos(&AMP) // positive amplitude threshold
+	}	
+	// apply threshold field and record Vm
+	tvec = new Vector()
+	tvec.record(&t,record_dt)
+	init_record_vm(vm_record_mode)
+	AMP = threshE // set to threshold - within a microvolt of actual threshold
+	printf("theta = %g phi = %g\nthreshold E = %f V/m\n",theta,phi,threshE)
+	tstop = tstop + 1 // run for longer to capture all APs
+	// run final simulation with 1 µs time step
+	if (dt >= 0.005) {
+		steps_per_ms = 1/0.001
+		dt = 0.001
+		fprint("Changing dt to %g µs for recording\n",dt)
+	}		
+	stimul() 	
+	// make sure AP occurred
+	while(ap_times_all.size() < 2 && abs(threshE) > 1e-6) {
+		AMP = AMP*1.01 // increase 1% to make sure threshold value is at/above threshold for saving vm vs. t data					
+		print "No APs detected. Re-running threshold stimulation"
+		stimul()
+	}
+	if (threshE==0) {
+		netids_all.append(-1) // placeholder
+	}
+	if (AMP != threshE) { // if threshE set to 0, AMP should also be set to 0
+		threshE = AMP
+		fprint("Adjusted threshE = %f V/m\n",threshE)
+	}	
+	// save threshold E file
+	strdef thresh_file		
+	sprint(thresh_file,"%s/threshE.txt",run_data_folder)
+	wopen(thresh_file)
+	// threshold (V/m), theta, phi, index of AP initiation comp 
+	fprint("%f\n%f\n%f\n%g",threshE,theta,phi,netids_all.x[0])
+	wopen()
+	strdef vm_file_bin,ap_all_file, netids_all_file, t_file  //vm_file
+	sprint(vm_file_bin,"%s/vm_data_bin.txt",run_data_folder)
+	// Save vm matrix as binary file directly to one file
+		sprint(vm_file_bin,"%s/vm_data_bin.txt",run_data_folder)
+		printf("Vm vec size = %g\n", vm_oarray.o[0][0].size())
+		file__saveDataVectors(vm_file_bin,vm_oarray,num_vm_record)			
+		printf("Saved Vm vectors to binary file in %s\n",vm_file_bin)
+	// save spike times and vector of section ids		
+		sprint(ap_all_file,"%s/ap_times_all.txt",run_data_folder)
+		sprint(netids_all_file,"%s/ap_netids_all.txt",run_data_folder)		
+		file__saveDataVector(ap_all_file,ap_times_all) // spike times
+		file__saveDataVector(netids_all_file,netids_all) // netids
+		printf("Saved ap times to %s\n and netids  %s\n",ap_all_file,netids_all_file)		
+	// save time vector
+		sprint(t_file,"%s/tvec.txt",run_data_folder)
+		file__saveDataVector(t_file,tvec)
+		printf("Saved time vector to %s\n",t_file)	
+}
+
+
+//min_sec_ind = get_min_comp_ind(min_sec_ind)
+objref strobj
+func get_min_comp_ind(){ local min_sec_ind, i 
+	//secnames = $o1
+	min_sec_ind = $1
+	strobj = new StringFunctions()		
+	strdef min_sec_ind_name
+	secrefs.o(min_sec_ind).sec min_sec_ind_name = secname()	
+	for i = 0, numComp-1 {
+		if (strobj.substr(secnames[i].s,min_sec_ind_name) != -1) {min_comp_ind = i}			
+	}				
+	printf("Min compartment ind: %d, Min compartment name: %s\n",min_comp_ind,secnames[min_comp_ind].s)
+	return min_comp_ind
+}

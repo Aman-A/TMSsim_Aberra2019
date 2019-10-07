@@ -1,0 +1,166 @@
+objref parentnames[numComp] 
+objref section_types, branchorders, diams, areas // morphology data
+strdef parentnames_file, diams_file, branchorders_file, areas_file, sectypes_file, coord_file
+
+// get sectionnames for every compartment (includes x value)
+proc get_secnames(){ local i, ii, in localobj secname_rec
+	objref secnames[numComp]
+	cell.soma {
+		secnames[0] = new String()
+		secnames[0].s = secname()
+	}
+	secname_rec = new String()
+	in = 0
+	for i = 1, numSect-1 {
+		secrefs.o(i).sec {
+			for(x,0) {
+				ii = in + (2*nseg*x+1)/2
+				secnames[ii] = new String()
+				secname_rec.s = secname()
+				sprint(secnames[ii].s,"%s.v(%.2f)",secname_rec.s,x)
+			}
+		}
+		in = ii
+	}
+}
+// coordinates<cell_id>.txt
+proc save_coords() { local k, i,len localobj xc, yc, zc		
+	// coordinate file directory
+	strdef coord_file
+	sprint(coord_file,"%s/coordinates%g.txt",run_data_folder,cell_id)		
+	// should have run getcoords()
+	if (xList.count() == 0) getcoords()			
+	numSect = xList.count()						
+	wopen(coord_file)
+	for k = 0, numSect-1 {
+		xc = new Vector() 
+		yc = new Vector()
+		zc = new Vector()
+
+		xc = xList.object(k) //extract coordinates vector of current section
+		yc = yList.object(k)
+		zc = zList.object(k)		
+		len = xc.size()
+		for i = 0,len-1 {
+			fprint("%f %f %f\n",xc.x[i],yc.x[i],zc.x[i]) //write to txt file
+		}		
+	}
+	wopen()	
+	printf("Saved coordinates to %s\n",coord_file)		
+}
+// save_secnames(run_data_folder) (calls get_secnames then saves to )
+proc save_secnames(){ 
+	get_secnames()
+	strdef secnames_file
+	sprint(secnames_file,"%s/secnames%g.txt",run_data_folder,cell_id)
+	wopen(secnames_file)	
+	for m = 0,numComp-1{	
+		fprint("%s\n",secnames[m].s)
+	}
+	wopen()
+	printf("Saved secnames names to %s\n",secnames_file)
+}
+// go through all compartments, skip soma, append parent id to parent_vec
+proc save_parentnames() { local i, ii,x0,x1,pnseg localobj parentname_rec,secname_rec
+	objref parentnames[numComp]
+	parentnames[0] = new String()
+	parentnames[0].s = " "
+	parentname_rec = new String()
+	secname_rec = new String()
+	in = 0 // start index at 1 (+1 added below), since soma is 0, retains count between sections	
+	for i=1,numSect-1 { 	
+		secrefs.o(i).sec {
+			secname_rec.s = secname() // current section name
+			for(x,0) {
+				ii = in + (2*nseg*x + 1)/2						
+				parentnames[ii] = new String()
+				secrefs.o(i).parent() {
+					parentname_rec.s = secname() //parent section name
+					pnseg = nseg
+				}
+				x1p = 1-1/(2*pnseg) // last compartment of parent section
+				x_prev = x - 1/nseg // previous compartment within section
+				if (ii==in+1) { // first compartment
+					sprint(parentnames[ii].s,"%s.v(%.2f)",parentname_rec.s,x1p) // name of last comp of parent
+				} else { //2nd and on
+					sprint(parentnames[ii].s,"%s.v(%.2f)",secname_rec.s,x_prev)
+				}					
+			}	
+			in = ii		
+		}	
+	}
+	sprint(parentnames_file,"%s/parentnames%g.txt",run_data_folder,cell_id)
+	wopen(parentnames_file)	
+	for m = 0,numComp-1{	
+		fprint("%s\n",parentnames[m].s)
+	}
+	wopen()
+	printf("Saved parent names to %s\n",parentnames_file)
+}
+// get diams, branchorders, and section_types
+proc get_tree_data(){ local i, ii, in
+	section_types = new Vector(numComp) // vector of each compartment's section type (all intermediate/bend within section)					
+	branchorders = new Vector(numComp) // vector of each compartment's branchorder (uniform within section)
+	diams = new Vector(numComp) // vector of each compartment's diameter
+	areas = new Vector(numComp)
+	in = -1 // start index at -1 (+1 added below), starts with soma at 0, retains count between sections
+	for i = 0, numSect-1 {						
+		secrefs.o(i).sec {
+			for(x,0) {				
+				ii = in + (2*nseg*x+1)/2
+				section_types.x[ii] = type_xtra(x) // save ith section type at x=0.5
+				branchorders.x[ii] = order_xtra // save ith section branch order (same for all x)		
+				diams.x[ii] = diam(x)	
+				areas.x[ii] = area(x)				
+			}
+			in = ii			
+		}		
+	}	
+}
+// save diams<cell_id>.txt, branchorders<cell_id>.txt, areas<cell_id>.txt, and section_types<cell_id>.txt
+proc save_tree_data(){ local m
+	get_tree_data()
+	// save diams
+	sprint(diams_file,"%s/diams%g.txt",run_data_folder,cell_id)
+	wopen(diams_file)	
+	for m = 0,numComp-1 {	
+		fprint("%f\n",diams.x[m])
+	}
+	wopen()
+	printf("Saved diams to %s\n",diams_file)
+	// save branchorders
+	sprint(branchorders_file,"%s/branchorders%g.txt",run_data_folder,cell_id)
+	wopen(branchorders_file)	
+	for m = 0,numComp-1 {	
+		fprint("%g\n",branchorders.x[m])
+	}
+	wopen()
+	printf("Saved branchorders to %s\n",branchorders_file)
+	// save areas
+	sprint(areas_file,"%s/areas%g.txt",run_data_folder,cell_id)
+	wopen(areas_file)	
+	for m = 0,numComp-1 {	
+		fprint("%f\n",areas.x[m])
+	}
+	wopen()
+	printf("Saved areas to %s\n",areas_file)
+	// save sectypes
+	sprint(sectypes_file,"%s/sectypes%g.txt",run_data_folder,cell_id)
+	wopen(sectypes_file)	
+	for m = 0,numComp-1 {	
+		fprint("%g\n",section_types.x[m])
+	}
+	wopen()	
+	printf("Saved sectypes to %s\n",sectypes_file)
+}
+
+proc save_cell_data(){
+	// coordinates<cell_id>.txt
+	save_coords()
+	// secnames<cell_id>.txt
+	save_secnames()
+	// parentnames<cell_id>.txt
+	save_parentnames()
+	// diams<cell_id>.txt, branchorders<cell_id>.txt, areas<cell_id>.txt, and section_types<cell_id>.txt 
+	save_tree_data()
+}

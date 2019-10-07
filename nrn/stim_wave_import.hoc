@@ -1,0 +1,76 @@
+
+// stimulus waveform
+// simple rectangular pulse
+
+//AMP = 1 // (V/m) amplitude
+/* Amplitude is 1 by default, which will then be scaled by 
+calculated potentials from MATLAB solution of stationary potential
+distribution to drive e_extracellular. Increasing scales potentials at all points. 
+*/
+
+objref stim_amp, stim_time, Efile, tfile
+stim_amp = new Vector()
+stim_time = new Vector()
+
+Efile = new File()
+tfile = new File()
+
+proc stim_waveform() { // $1 = amp
+  strdef Efile_name, tfile_name
+  sprint(Efile_name,"%sparams/%s/Evec.txt",nrn_dir,run_name)
+  sprint(tfile_name,"%sparams/%s/tvec.txt",nrn_dir,run_name)
+  // E field amplitudes
+  Efile.ropen(Efile_name)
+  tfile.ropen(tfile_name)
+  stim_amp.vread(Efile)
+  stim_time.vread(tfile)
+  Efile.close()
+  tfile.close()
+  //print "Read E and t vector from files"  
+}
+
+//stim_waveform()
+ATTACHED__ = 0
+
+proc attach_stim() {
+	forall {
+		if (ATTACHED__ == 0) { // don't bother if stim is already attached to something
+			if (ismembrane("xtra")) {
+				stim_amp.play(&stim_xtra, stim_time, 1)        
+				ATTACHED__ = 1
+			}
+		}
+	}
+}
+// Plot waveform
+
+objref g1
+proc plot_waveform() {
+	g1 = new Graph(0)
+	g1.size(0,stim_time.size(),-1, $1)
+	stim_amp.plot(g1,stim_time)
+	g1.view(0,-$1,stim_time.x[stim_time.size()-1],$1-(-$1),800,150, 300.48, 200.32) 
+}
+proc setstim() {	
+	amp = $1
+	stim_waveform()
+	stim_amp.mul($1)
+	attach_stim()	
+	//plot_waveform(amp) //visualize stimulation waveform
+}
+
+//setstim(AMP)
+
+/*
+print "Use setstim(del, dur,amp) to change latency (ms) and duration (ms)"
+print "of extracellular voltage pulse waveform"
+
+proc stim_panel() {
+  xpanel("Extracellular Stimulus Current", 0)    
+    xvalue("Field strength (V/m)", "AMP", 1, "setstim(AMP)", 0, 1)    
+  xpanel(73,497)
+}
+
+stim_panel()
+*/
+

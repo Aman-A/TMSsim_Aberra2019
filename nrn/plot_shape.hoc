@@ -1,0 +1,111 @@
+create xScale, yScale, zScale
+proc anatscale() {	
+	create xScale, yScale, zScale
+	if ($4>0) {  // if length arg is <= 0 then do nothing
+		xScale {
+			pt3dclear()
+			pt3dadd($1, $2, $3, 1)
+			pt3dadd($1+$4, $2, $3, 1)
+		}
+		yScale {
+			pt3dclear()
+			pt3dadd($1, $2, $3, 1)
+			pt3dadd($1, $2+$4, $3, 1)
+		}
+		zScale {
+			pt3dclear()
+			pt3dadd($1, $2, $3, 1)
+			pt3dadd($1, $2, $3+$4, 1)
+		}
+	}
+}
+
+// Generate shape plot with axon colored red, apical dends blue, basal dends green, and black point on soma 
+objref shplot, soma_point
+proc color_plot() {		
+	anatscale(400,0,400,250)  // origin xyz and length
+	shplot = new Shape(0)	
+	shplot.view(-1200,-900,2200,1200,300,10,800,600)
+	shplot.color_list(cell.axonal,2)
+	shplot.color_list(cell.apical,3)
+	shplot.color_list(cell.basal,4)
+	cell.soma soma_point = new IClamp(0.5)
+	shplot.point_mark(soma_point,1,"O",10)	
+	if (cell_rotated) shplot.rotate(1,0,0,PI/2,0,0)
+	
+}
+objref shplot2
+proc color_sec() { // access section then execute color_sec()		
+	shplot2 = new Shape(0)	
+	shplot2.view(-1200,-900,2200,1200,300,10,800,600)	
+	shplot2.color(2)
+	if (cell_rotated) shplot2.rotate(1,0,0,PI/2,0,0)
+	color_plot_created = 1	
+}
+// color axon compartments (node, myelin, unmyelin, and iseg)
+objref shplot3, soma_point3, pElec
+// input 1 to save fig, 0 just to plot
+proc color_plotm() { local save_fig
+	save_fig = $1 		
+	anatscale(400,0,400,250)  // origin xyz and length
+	shplot3 = new Shape(0)	
+	shplot3.view(-1366.28, -1000, 2932.55, 2200, 424, 0, 800.64, 600.64)
+	if (myelinate_axon) {
+		shplot3.color_list(iseg_secList,5)
+		shplot3.color_list(Node_secList,2)
+		shplot3.color_list(Myelin_secList,1)
+		if (Unmyelin_secList != nil) shplot3.color_list(Unmyelin_secList,5)				
+	} else {
+		shplot3.color_list(cell.axonal,2)
+	}	
+	shplot3.color_list(cell.apical,3)
+	shplot3.color_list(cell.basal,4)
+	cell.soma soma_point3 = new IClamp(0.5)
+	shplot3.point_mark(soma_point3,1,"O",5)
+	if (cell_rotated) shplot3.rotate(1,0,0,PI/2,0,0)
+	if (save_fig) {
+		strdef cellfile
+		if (numarg() < 2) {
+			sprint(cellfile,"Cell%g.eps",cell_id)
+		} else {
+			sprint(cellfile,"%s.eps",$s2)
+		}		
+		shplot3.printfile(cellfile)
+	}		
+	shplot3.menu_tool("test", "p")
+	shplot3.exec_menu("test")
+}
+// color main axon red, axon in black
+proc color_plotmax() { local save_fig
+	save_fig = $1 	
+	anatscale(400,0,400,250)  // origin xyz and length
+	shplot3 = new Shape(0)	
+	shplot3.view(-1366.28, -1000, 2932.55, 2200, 424, 0, 800.64, 600.64)
+	shplot3.color_list(cell.axonal,1)
+	shplot3.color_list(main_ax_list,2)	
+	shplot3.color_list(cell.apical,3)
+	shplot3.color_list(cell.basal,4)
+	cell.soma soma_point3 = new IClamp(0.5)
+	shplot3.point_mark(soma_point3,1,"O",10)
+	if (cell_rotated) shplot3.rotate(1,0,0,PI/2,0,0)
+	if (save_fig) {
+		strdef cellfile
+		sprint(cellfile,"Cell%g.eps",cell_id)
+		shplot3.exec_menu("View = plot")
+		shplot3.printfile(cellfile)
+	}		
+}
+// p() adapted from https://www.neuron.yale.edu/neuron/static/new_doc/visualization/shape.html
+proc p() { local d, a 	
+        if ($1 == 2) {                
+                d = shplot3.nearest($2,$3)
+                a = shplot3.push_selected()
+                if (a >= 0) {
+						if (d <= 100){
+							shplot3.select()
+                        	printf("%g from %s(%g)\n", d, secname(), a)
+						}                        
+                        pop_section()
+                }
+        }
+}

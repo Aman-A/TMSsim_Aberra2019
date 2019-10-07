@@ -1,0 +1,103 @@
+// assigns biophysical parameters to myelinated axon
+// should have created SectionLists: Myelin_secList, Node_secList, UnMyelin_secList, iseg_secList, and axonal
+
+
+proc myelin_biophys() { //iseg_secList,Node_secList,Myelin_seclist,Unmyelin_secList
+
+	if (axon_bp == nil) axon_bp = get_axon_biophys()	
+	forsec cell.somatic {
+		cm=1 // uF/cm2 (0.5 - Eyal 2016)
+	}
+	forsec cell.apical {
+		cm = 2 // uF/cm2 0.5*2 for area of dendritic spines (Eyal 2016)
+	}
+	forsec cell.basal {
+		cm = 2 // uF/cm2 0.5*2 for area of dendritic spines (Eyal 2016)
+	}
+	if (axonal != nil) {
+		forsec axonal {		// cell.axonal still not formed
+			insert pas						
+			e_pas = axon_bp.x[12] // usually -75 mV
+			Ra = 100 // Ohm*cm
+			cm = 1 // µF/cm2 (Eyal 2016)
+			g_pas = axon_bp.x[13] // usually 3e-5 S/cm2		
+		}	
+	} else if (cell.axonal != nil) {
+		forsec cell.axonal { // replace_axon = 5 (artificial myelinated axon)
+			insert pas						
+			e_pas = axon_bp.x[12] // usually -75 mV
+			Ra = 100 // Ohm*cm
+			cm = 1 // µF/cm2 (Eyal 2016)
+			g_pas = axon_bp.x[13] // usually 3e-5 S/cm2		
+		}	
+	}	
+	
+	//forsec axonal {
+	forsec Node_secList {					
+		//insert Ca_HVA
+		insert SKv3_1
+		//insert SK_E2
+		//insert CaDynamics_E2
+		insert Nap_Et2
+		insert K_Pst
+		insert K_Tst
+		//insert Ca_LVAst
+		insert NaTa_t			
+		//insert NaTa2_t
+		for(x,0){
+			if (ismembrane("NaTa_t")) gNaTa_tbar_NaTa_t(x) = 2*axon_bp.x[0] //2.5
+			//if (ismembrane("NaTa2_t")) gNaTa2_tbar_NaTa2_t(x) = axon_bp.x[0] // New sodium channel for axon proper
+			if (ismembrane("K_Tst")) gK_Tstbar_K_Tst(x) = axon_bp.x[1] //2
+			if (ismembrane("CaDynamics_E2")) gamma_CaDynamics_E2(x) = axon_bp.x[2]
+			if (ismembrane("Nap_Et2")) gNap_Et2bar_Nap_Et2(x) = axon_bp.x[3] 
+			if (ismembrane("SK_E2")) gSK_E2bar_SK_E2(x) = axon_bp.x[4] 
+			if (ismembrane("Ca_HVA")) gCa_HVAbar_Ca_HVA(x) = axon_bp.x[5]
+			if (ismembrane("K_Pst")) gK_Pstbar_K_Pst(x) = axon_bp.x[6] //2
+			if (ismembrane("SKv3_1")) gSKv3_1bar_SKv3_1(x) = axon_bp.x[7] //2
+			if (ismembrane("CaDynamics_E2")) decay_CaDynamics_E2(x) = axon_bp.x[8]
+			if (ismembrane("Ca_LVAst")) gCa_LVAstbar_Ca_LVAst(x) = axon_bp.x[9]
+			if (ismembrane("Im")) gImbar_Im(x) = axon_bp.x[10] 
+			if (ismembrane("Ca")) gCabar_Ca(x) = axon_bp.x[11]	
+		}		
+		// don't change e_pas or g_pas
+		//g_pas = 3e-5 // 0.02 - Mainen 1995
+		ena = 50
+		ek = -85					
+	}
+	
+	
+	forsec Myelin_secList {		
+		cm = 0.02	// Mainen 1996, 0.02 - Eyal 2014
+		g_pas = 1/1.125e6 // 1/1.125e6 - Eyal 2016 insulating		
+	}
+
+	if (Unmyelin_secList != nil) {
+		forsec Unmyelin_secList {	
+			//insert Ca_HVA
+			insert SKv3_1
+			//insert SK_E2
+			//insert CaDynamics_E2
+			insert Nap_Et2
+			insert K_Pst
+			insert K_Tst
+			//insert Ca_LVAst
+			insert NaTa_t
+			for (x,0) {
+				if (ismembrane("NaTa_t")) gNaTa_tbar_NaTa_t(x) = axon_bp.x[0]
+				if (ismembrane("K_Tst")) gK_Tstbar_K_Tst(x) = axon_bp.x[1]
+				if (ismembrane("CaDynamics_E2")) gamma_CaDynamics_E2(x) = axon_bp.x[2]
+				if (ismembrane("Nap_Et2")) gNap_Et2bar_Nap_Et2(x) = axon_bp.x[3] 
+				if (ismembrane("SK_E2")) gSK_E2bar_SK_E2(x) = axon_bp.x[4] 
+				if (ismembrane("Ca_HVA")) gCa_HVAbar_Ca_HVA(x) = axon_bp.x[5]
+				if (ismembrane("K_Pst")) gK_Pstbar_K_Pst(x) = axon_bp.x[6]
+				if (ismembrane("SKv3_1")) gSKv3_1bar_SKv3_1(x) = axon_bp.x[7]
+				if (ismembrane("CaDynamics_E2")) decay_CaDynamics_E2(x) = axon_bp.x[8]
+				if (ismembrane("Ca_LVAst")) gCa_LVAstbar_Ca_LVAst(x) = axon_bp.x[9]
+				if (ismembrane("Im")) gImbar_Im(x) = axon_bp.x[10] 
+				if (ismembrane("Ca")) gCabar_Ca(x) = axon_bp.x[11]
+			}			
+			ena = 50
+			ek = -85
+		}		
+	}	
+}

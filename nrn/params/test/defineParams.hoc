@@ -1,0 +1,40 @@
+NSTACK_size = 100000 // always call with NSTACK at least 100000
+//*****Simulation Parameters****
+steps_per_ms = 1/0.005000
+strdef run_name
+run_name = "test"
+dt = 0.005000
+tstop = 1.000000
+v_init = -75.000000
+ss_init = 1.000000
+init_tstart = -1e+11
+init_dt = 1e+09
+vm_record_mode = 1.000000
+spike_record_mode = 4.000000
+record_dt = 0.025000
+temp = 37.000000
+//*****Cell model Parameters****
+cell_id = 6
+strdef cell_model_name
+cell_model_name = "L23_PC_cADpyr229_1"
+strdef nrn_model_ver
+nrn_model_ver = "maxH"
+replace_axon = 0
+myelinate_axon = 1
+scale_axon_diam = 2.453000
+scale_mainaxon_diam = 1.000000
+prune_axon = 0.000000
+scale_apic_diam = 1.876000
+scale_basal_diam = 1.946000
+scale_soma_area = 2.453000
+scale_basal_L = 1.170000
+min_myelinD = 0.200000
+min_myelinL = 20.000000
+max_myelin_order = 0.000000
+total_axonL = 800.000000
+//*****E-field Parameters****
+theta = 180
+phi = 0
+load_potentials = 0
+E_mag = 0
+AMP = 100.000000

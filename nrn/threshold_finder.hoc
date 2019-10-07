@@ -1,0 +1,112 @@
+// Determine strength of argument to within epsilon, that excites cell.
+
+// use to find anodic (positive) threshold
+
+objref ap_times_all // declare here to avoid error when loading b/c of return of thresh_excited_...()
+numAPs = 2 // threshold = greater than this # of compartments to passing thresh
+func thresh_excited() {
+	stimul()	
+	//print ap_times_all.size()	
+	return ap_times_all.size() > numAPs // at least 3 compartments reached threshold 		
+}
+
+// do a binary search for threshold
+func threshold_pos() { local low, high, epsilon, t1
+	// the "call by reference" arg $&1 is the independent variable
+	t1 = startsw() // used to make sure threshold finder doesn't run longer than 5 min
+	max_time = 300 // sec
+	// bounding the threshold first can save several iterations
+	low = 0 	high = 1e5
+	if ($&1 == 0) { $&1 = 1 }
+	while ((low == 0 || high == 1e5) && (startsw() - t1 < max_time) ) {
+		if (thresh_excited()) {
+			high = $&1
+			//printf("high-amp is %f, high is %f, low is %f\n",$&1,high,low)
+			$&1 = high/2			
+		} else {
+			low = $&1
+			$&1 = 2*low
+			//printf("low-amp is %f, low is %f, high is %f\n",$&1,low,high)
+		}
+		if (stoprun) {print "stoprun" return $&1}
+		if (low > high) return high
+	}
+	if (startsw() - t1 > max_time) {
+		printf("!!Threshold search ran for longer than %g sec!!, exited and returned 0\n",max_time)
+		return 0
+	}
+	//printf("5-amp is %f, high is %f, low is %f\n",dummystim.amp,high,low)
+	// at this point high is not more than twice the theshold and
+	// low is not less than half the threshold	
+	epsilon = 1e-8 + 5e-2	// 2 decimal places accuracy
+	//printf("epsilon is %f\n",epsilon)
+	/* now narrow the bounds */
+	$&1 = (high + low)/2
+	while ( high - low > epsilon) {	
+		if (thresh_excited()) {
+			high = $&1
+			//printf("6-amp is %f, high is %f, low is %f\n",$&1,high,low)
+		} else {
+			low = $&1
+			//printf("7-amp is %f, high is %f, low is %f\n",$&1,high,low)
+		}
+		$&1 = (high + low)/2	
+		if (stoprun) break
+	}			
+	//print "Number of APs ", ap_times_all.size()
+	//print "high ", high, "low ", low
+	//print "thresh ", $&1
+	//return $&1
+	$&1 = high 
+	return high
+}
+
+// do a binary search for threshold
+func threshold_neg() { local low, high, epsilon, t1
+	// the "call by reference" arg $&1 is the independent variable
+	t1 = startsw() // used to make sure threshold finder doesn't run longer than 2 min
+	max_time = 1200 // sec
+	// bounding the threshold first can save several iterations
+	low = 0 	high = -1e5
+	if ($&1 == 0) { $&1 = 1 }
+	while ((low == 0 || high == -1e5) && (startsw() - t1 < max_time) ) {
+		if (thresh_excited()) {
+			high = $&1
+			//printf("high-amp is %f, high is %f, low is %f\n",$&1,high,low)
+			$&1 = high/2			
+		} else {
+			low = $&1
+			$&1 = 2*low
+			//printf("low-amp is %f, low is %f, high is %f\n",$&1,low,high)
+		}
+		if (stoprun) {print "stoprun" return $&1}
+		if (low < high) return high
+	}
+	if (startsw() - t1 > max_time) {
+		printf("!!Threshold search ran for longer than %g sec!!, exited\n",max_time)
+	}
+	//printf("5-amp is %f, high is %f, low is %f\n",dummystim.amp,high,low)
+	// at this point high is not more than twice the theshold and
+	// low is not less than half the threshold	
+	epsilon = 1e-8 + 5e-2	// 2 decimal places accuracy
+	//printf("epsilon is %f\n",epsilon)
+	/* now narrow the bounds */
+	$&1 = (high + low)/2
+	while ( abs(high - low) > epsilon) {	
+		if (thresh_excited()) {
+			high = $&1
+			//printf("6-amp is %f, high is %f, low is %f\n",$&1,high,low)
+		} else {
+			low = $&1
+			//printf("7-amp is %f, high is %f, low is %f\n",$&1,high,low)
+		}
+		$&1 = (high + low)/2	
+		if (stoprun) break
+	}			
+	//print "Number of APs ", ap_times_all.size()
+	//print "high ", high, "low ", low
+	//print "thresh ", $&1
+	//return $&1
+	$&1 = high 
+	return high
+}
