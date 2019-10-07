@@ -1,1 +1,3 @@
 mat/figures
+mat/cell_data/*
+!mat/cell_data/cell_models_all.mat
