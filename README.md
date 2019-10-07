@@ -7,6 +7,7 @@ Dependencies:
 - MATLAB r2016 or later (should run on most older versions)
     Certain functions for generating figures require additional MATLAB toolboxes
         - Curve Fitting Toolbox: required by `makeSlices.m` (used in `plotFig2b.m`, `plotFig4.m`, `plotFig5.m`)    
+Total storage space required ~290 MB
 
 To run NEURON simulations of single neurons:
 
@@ -26,9 +27,17 @@ Execute following code to make executable:
 
 4) Once cell_data and nrn_efields data has been generated, individual neural thresholds with TMS-induced E-field and waveforms can be run using set_test_params.m script to save the TMS waveform (tvec.txt/Evec.txt) and E-field (Er.txt) distribution to (./nrn/params/test) to be used in NEURON simulation, and specifying parameters in (./params/test/defineParams.hoc). Default settings initialize a L23 pyramidal cell for uniform E-field stimulation (`load_potentials = 0`). Set `load_potentials` = 1 to use saved Er.txt. NOTE: Er.txt must be saved for correct neuron model, which is designated by `cell_id` (L23 pyramidal cells are 6-10).
 
-The NEURON simulation can then be run by running (./nrn/.mosinit.command) from the terminal (MacOS/Linux) or 
+To run NEURON simulation,
+
+- On MacOS/Linux: 
+    - Launch (./nrn/.mosinit.command) from the terminal
+- On Windows: 
+    - Right-click mosinit.ps1 and select “Run with Powershell”, which will probably require giving permission to run. To make short-cut executable with double-click:
+    - right-click mosinit.ps1 and select “Create shortcut”
+    - right-click newly created shortcut (ends with Shortcut.lnk by default) and select “Properties” in the “Target:” field, add the text below before the existing text, which should look like this:
+        `powershell.exe -ExececutionPolicy Bypass -File C:\path\to\file…`
 
 
 # SLURM
-Example code for parallelizing simulations on linux cluster with SLURM scheduler is in slurm/ folder
+Example code for parallelizing simulations on Linux cluster with SLURM scheduler is in slurm/ folder
 
