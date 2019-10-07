@@ -17,7 +17,7 @@ Efield_solution="M1_PA_MCB70"
 model_prefix="tms_${nrn_model_ver}_w${tms_mode}_ls_${lsn}_E_${Efield_solution}_P_${nrn_pop_name}" 
 cell_ids='[6:10]'
 # Go to MATLAB directory and launch function
-main_fold="/dscrhome/asa45/TMSsim_Aberra2019"
+main_fold=".." # or replace with absolute path to TMSsim_Aberra2019/
 cd ${main_fold}/mat
 
 echo "Launching matlab"

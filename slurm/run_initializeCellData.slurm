@@ -9,6 +9,6 @@
 
 # run initialize_cell_data()
 # generates cell model data and 6 neuron populations
-
-cd ../mat # go to matlab code directory
+main_fold=".." # or replace with absolute path to TMSsim_Aberra2019/
+cd ${main_fold}/mat # go to matlab code directory
 /opt/apps/matlabR2016a/bin/matlab -nodisplay -nodesktop -nosplash -r "initializeCellData()"

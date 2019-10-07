@@ -10,6 +10,6 @@
 # run interpEfieldsAll()
 # calls interpEfield for all 6 neuron populations (nrn_pop1-6) and interpolates E-field for both
 # E-field solutions in used in Aberra et al. 2019
-
-cd ../mat # go to matlab code directory
+main_fold=".." # or replace with absolute path to TMSsim_Aberra2019/
+cd ${main_fold}/mat # go to matlab code directory
 /opt/apps/matlabR2016a/bin/matlab -nodisplay -nodesktop -nosplash -r "interpEfieldsAll()"

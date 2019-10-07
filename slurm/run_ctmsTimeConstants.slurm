@@ -23,7 +23,7 @@ done
 data_files_str="{${data_files[*]}}"
 data_output_file="tms_${nrn_model_ver}_w${tms_mode}_${durs[0]}-${durs[-1]}us_ls_${lsn}_E_${Efield_solution}_P_${nrn_pop_name}_timeconstants" 
 # Go to MATLAB directory and launch function
-main_fold="/dscrhome/asa45/TMSsim_Aberra2019"
+main_fold=".." # or replace with absolute path to TMSsim_Aberra2019/
 cd ${main_fold}/mat
 
 echo "Launching matlab"

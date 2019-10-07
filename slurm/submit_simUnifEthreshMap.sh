@@ -1,6 +1,6 @@
 #!/bin/bash
 # Submit simUnifEthreshMap jobs for all cells
-export main_fold="/dscrhome/asa45/TMSsim_Aberra2019"
+export main_fold=".." # or replace with absolute path to TMSsim_Aberra2019/
 numCPUs=27
 total_mem=30G
 job_name="utms"

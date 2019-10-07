@@ -12,7 +12,7 @@ uname -n 1>&1 # print node name
 model_prefix="utms_maxHlin_w1_rax5"
 cell_ids='[6:10]'
 # Go to MATLAB directory and launch function
-main_fold="/dscrhome/asa45/TMSsim_Aberra2019"
+main_fold=".." # or replace with absolute path to TMSsim_Aberra2019/
 cd ${main_fold}/mat
 
 echo "Launching matlab"
