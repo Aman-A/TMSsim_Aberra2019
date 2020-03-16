@@ -2,6 +2,15 @@
 % uses defaults from Aberra et al. 2019
 function initializeCellData()
 mat_dir = addPaths; 
+
+%% Check that nrnmech.dll file exists, if not display a warning message
+nrnmech_file = fullfile(mat_dir, '../nrn', 'nrnmech.dll');
+if ~isfile(nrnmech_file)
+    msg = 'nrniv.exe does not exist. Compile mechanisms and move nrniv.exe to nrn folder';
+    f = warndlg(msg, 'modal');
+    return
+end
+
 %% Generate cell data (based on neuron models placed in '../nrn/cells/'
 writeCellModelTable(); % creates cell_data/cell_data.mat, called by cellModelNames
 cell_model_names = cellModelNames; % outputs all cell_model_names
