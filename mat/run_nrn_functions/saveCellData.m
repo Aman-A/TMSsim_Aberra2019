@@ -29,11 +29,16 @@ cd(nrn_dir); % launch init_run_stim.hoc from here
 nrn_file = fullfile(nrn_dir,'init_field_stim.hoc'); 
 commands = sprintf(' -c "run_name=\\"%s"\\" -c "loadFiles()" -c "cell_chooser(cell_id,cell_model_name)" -c "save_cell_data()" -c "quit()"',simulation.run_name);                    
 options = sprintf('-nopython -NSTACK %g -NFRAME %g ',100000,20000);
-if ispc    
-    system(['C:\nrn\bin\nrniv.exe -nobanner ' options nrn_file commands]);
-elseif isunix       
+
+if ispc
+    % Get the NEURON installation path to execute the code
+    nrn_install_path = getenv('NEURONHOME');
+    system([fullfile(nrn_install_path, 'bin', 'nrniv.exe') ' -nobanner ' options nrn_file commands]);
+    %     system(['C:\nrn\bin\nrniv.exe -nobanner ' options nrn_file commands]);
+elseif isunix
     system(['./special ' options nrn_file commands]);
 end
+    
 cd(mat_dir); % launch init_run_stim.hoc from here
 %% neuron data files
 coords_file = fullfile(run_tmp_fold,sprintf('coordinates%g.txt',cell_id)); 
